@@ -131,15 +131,21 @@ function analyze(c15,c1h,fp){
   ];
   const greens=inds.slice(0,5).filter(x=>x.s==='g').length;
   const reds=inds.slice(0,5).filter(x=>x.s==='r').length;
-  const overall=greens>=4&&t1h?'BUY':reds>=4&&!t1h?'SHORT':greens>=3&&t1h?'CAUTION':reds>=3&&!t1h?'CAUTION':'AVOID';
-  return{price:cl.at(-1),atr:atrV,inds,greens,reds,overall};
+  let overall='AVOID';
+  if(greens>=4&&t1h)       overall='STRONG BUY';
+  else if(greens>=4&&!t1h) overall='BUY';
+  else if(reds>=4&&!t1h)   overall='STRONG SHORT';
+  else if(reds>=4&&t1h)    overall='SHORT';
+  else if(greens>=3)       overall='CAUTION';
+  else if(reds>=3)         overall='CAUTION';
+  return{price:cl.at(-1),atr:atrV,inds,greens,reds,t1h,overall};
 }
 
 function fP(p,id){if(id==='PEPE')return'$'+p.toFixed(8);if(p>1000)return'$'+p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return'$'+p.toFixed(4);}
 function fL(p,id){if(id==='PEPE')return'$'+p.toFixed(9);if(p>1000)return'$'+p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return'$'+p.toFixed(4);}
 
-const OC={BUY:'#30D158',SHORT:'#FF453A',CAUTION:'#FF9F0A',AVOID:'rgba(255,255,255,0.45)'};
-const OI={BUY:'▲',SHORT:'▼',CAUTION:'●',AVOID:'○'};
+const OC={'STRONG BUY':'#30D158',BUY:'#30D158','STRONG SHORT':'#FF453A',SHORT:'#FF453A',CAUTION:'#FF9F0A',AVOID:'rgba(255,255,255,0.45)'};
+const OI={'STRONG BUY':'▲▲',BUY:'▲','STRONG SHORT':'▼▼',SHORT:'▼',CAUTION:'●',AVOID:'○'};
 const SC={g:'#30D158',r:'#FF453A',y:'#FF9F0A'};
 const SB={g:'rgba(48,209,88,.15)',r:'rgba(255,69,58,.15)',y:'rgba(255,159,10,.15)'};
 const SD={g:'rgba(48,209,88,.55)',r:'rgba(255,69,58,.55)',y:'rgba(255,159,10,.55)'};
@@ -159,7 +165,7 @@ function renderPage(){
   if(!d&&!e){el.innerHTML='<div class="sk"><div class="skc"></div><div class="skt">Loading '+active+'&#8230;</div></div>';return;}
   if(e&&!d){el.innerHTML='<div class="errc"><div class="errh">'+active+' failed</div><div class="errb">'+e+'</div></div>';return;}
   const oc=OC[d.overall];
-  const isShort=d.overall==='SHORT',isBuy=d.overall==='BUY';
+  const isShort=d.overall==='SHORT'||d.overall==='STRONG SHORT',isBuy=d.overall==='BUY'||d.overall==='STRONG BUY',isStrong=d.overall==='STRONG BUY'||d.overall==='STRONG SHORT';
   const barColor=isShort?'#FF453A':'#30D158',barCount=isShort?d.reds:d.greens;
   const bars=Array.from({length:5}).map((_,i)=>'<div class="sbar'+(i<barCount?' on':'')+'" style="'+(i<barCount?'background:'+barColor:'')+'"></div>').join('');
   const rows=d.inds.map(ind=>'<div class="row">'
@@ -175,7 +181,7 @@ function renderPage(){
     +'<div class="hprice">'+coin.label+' - '+fP(d.price,active)+'</div>'
     +'<div class="hring" style="background:radial-gradient(circle,'+oc+'28 0%,'+oc+'10 65%,transparent 100%);border:1.5px solid '+oc+'55;">'
     +'<div class="hcirc" style="background:'+oc+';box-shadow:0 0 28px '+oc+'70;">'+OI[d.overall]+'</div></div>'
-    +'<div class="hlbl" style="color:'+oc+';">'+d.overall+'</div>'
+    +'<div class="hlbl" style="color:'+oc+';">'+d.overall+'</div>'+(isStrong?'<div style="font-size:12px;color:'+oc+';margin-bottom:4px;">★ High confidence</div>':(isBuy||isShort)?'<div style="font-size:12px;color:rgba(255,255,255,.35);margin-bottom:4px;">Counter-trend — half size</div>':'')
     +'<div class="sbars">'+bars+'</div>'
     +'<div class="hsub">'+(isShort?d.reds:d.greens)+' of 5 '+(isShort?'red':'green')+'</div></div>'
     +'<div class="card"><div class="clbl">INDICATORS</div>'+rows+'</div>'
