@@ -62,7 +62,7 @@ html,body{background:#0C0C0E;color:#fff;font-family:-apple-system,BlinkMacSystem
   <div class="hdr">
     <div>
       <div class="title">Signals</div>
-      <div class="source">Kraken · 15M entry · 1H gate · 4H bonus</div>
+      <div class="source">Coinbase · 15M entry · 1H gate · 4H bonus</div>
     </div>
     <button class="rbtn" onclick="go()">
       <span id="ric">&#8635;</span>
@@ -76,9 +76,9 @@ html,body{background:#0C0C0E;color:#fff;font-family:-apple-system,BlinkMacSystem
 </div>
 <script>
 const COINS=[
-  {id:'BTC',pair:'XBTUSD',okxSym:'BTC-USDT-SWAP',color:'#FF9F0A',label:'Bitcoin'},
-  {id:'SOL',pair:'SOLUSD',okxSym:'SOL-USDT-SWAP',color:'#BF5AF2',label:'Solana'},
-  {id:'PEPE',pair:'PEPEUSD',okxSym:'PEPE-USDT-SWAP',color:'#30D158',label:'Pepe'},
+  {id:'BTC',sym:'BTC-USD', futSym:'BTCUSDT', okxSym:'BTC-USDT-SWAP', color:'#FF9F0A',label:'Bitcoin'},
+  {id:'SOL',sym:'SOL-USD', futSym:'SOLUSDT',  okxSym:'SOL-USDT-SWAP', color:'#BF5AF2',label:'Solana'},
+  {id:'PEPE',sym:'PEPE-USD',futSym:'1000PEPEUSDT',okxSym:'PEPE-USDT-SWAP',color:'#30D158',label:'Pepe'},
 ];
 let active='BTC',allData={},allErr={},tabSig={},busy=false,cd=60,timer=null,lastUp=null;
 
@@ -86,20 +86,27 @@ function ema(a,p){if(a.length<p)return[];const k=2/(p+1);let v=a.slice(0,p).redu
 function rsi(c,p=14){if(c.length<p+2)return[];const ch=c.slice(1).map((x,i)=>x-c[i]);let g=0,l=0;for(let i=0;i<p;i++){g+=ch[i]>0?ch[i]:0;l+=ch[i]<0?-ch[i]:0;}g/=p;l/=p;const r=[];for(let i=p;i<ch.length;i++){g=(g*(p-1)+(ch[i]>0?ch[i]:0))/p;l=(l*(p-1)+(ch[i]<0?-ch[i]:0))/p;r.push(l===0?100:100-100/(1+g/l));}return r;}
 function calcATR(H,L,C,p=14){if(H.length<p+1)return null;const tr=H.map((h,i)=>i===0?h-L[i]:Math.max(h-L[i],Math.abs(h-C[i-1]),Math.abs(L[i]-C[i-1])));let a=tr.slice(1,p+1).reduce((x,y)=>x+y)/p;for(let i=p+1;i<tr.length;i++)a=(a*(p-1)+tr[i])/p;return a;}
 
-async function krakenOHLC(pair,interval){
+async function fetchOHLC(sym,interval){
+// Coinbase Advanced API - works in US
+// interval map: 15m->ONE_MINUTE(x15), use granularity in seconds
+const gran={
+‘15m’:900,   // 15 min
+‘1h’:3600,   // 1 hour
+‘4h’:14400   // 4 hour
+}[interval];
+const end=Math.floor(Date.now()/1000);
+const start=end-gran*210; // enough candles
 const ctrl=new AbortController();
 const t=setTimeout(()=>ctrl.abort(),8000);
 try{
-const r=await fetch(‘https://api.kraken.com/0/public/OHLC?pair=’+pair+’&interval=’+interval,{signal:ctrl.signal});
+const url=‘https://api.exchange.coinbase.com/products/’+sym+’/candles?granularity=’+gran+’&start=’+start+’&end=’+end;
+const r=await fetch(url,{signal:ctrl.signal});
 clearTimeout(t);
-if(!r.ok)throw new Error(’Kraken HTTP ’+r.status);
+if(!r.ok)throw new Error(’Coinbase HTTP ’+r.status);
 const j=await r.json();
-if(j.error&&j.error.length)throw new Error(j.error[0]);
-const key=Object.keys(j.result).find(k=>k!==‘last’);
-if(!key)throw new Error(’No data for ’+pair);
-const c=j.result[key];
-if(!Array.isArray(c)||c.length<50)throw new Error(’Too few candles for ’+pair);
-return c.map(k=>({c:+k[4],h:+k[2],l:+k[3],v:+k[6]}));
+if(!Array.isArray(j)||j.length<50)throw new Error(‘Too few candles’);
+// Coinbase returns [time,low,high,open,close,volume] newest first - reverse it
+return j.slice().reverse().map(k=>({c:+k[4],h:+k[2],l:+k[1],v:+k[5]}));
 }catch(e){clearTimeout(t);throw e;}
 }
 async function fetchFunding(coin){
@@ -210,7 +217,7 @@ if(busy)return;busy=true;setBtn();
 // Phase 1 — load 15M + 1H + funding, render immediately
 await Promise.all(COINS.map(async coin=>{
 try{
-const[c15,c1h,fp]=await Promise.all([krakenOHLC(coin.pair,15),krakenOHLC(coin.pair,60),fetchFunding(coin)]);
+const[c15,c1h,fp]=await Promise.all([fetchOHLC(coin.sym,‘15m’),fetchOHLC(coin.sym,‘1h’),fetchFunding(coin)]);
 // Use flat 4H candles if we don’t have them yet
 const c4h=allData[coin.id]?allData[coin.id]._c4h:null;
 allData[coin.id]=analyze(c15,c1h,c4h||c1h,fp);
@@ -223,7 +230,7 @@ lastUp=new Date();cd=60;busy=false;renderTabs();renderPage();setBtn();
 // Phase 2 — quietly fetch 4H in background, update if it changes signal
 COINS.forEach(async coin=>{
 try{
-const c4h=await krakenOHLC(coin.pair,240);
+const c4h=await fetchOHLC(coin.sym,‘4h’);
 if(!allData[coin.id])return;
 allData[coin.id]._c4h=c4h;
 const updated=analyze(allData[coin.id]._c15,allData[coin.id]._c1h,c4h,allData[coin.id]._fp);
