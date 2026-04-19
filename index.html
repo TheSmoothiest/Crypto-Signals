@@ -87,7 +87,11 @@ function rsi(c,p=14){if(c.length<p+2)return[];const ch=c.slice(1).map((x,i)=>x-c
 function calcATR(H,L,C,p=14){if(H.length<p+1)return null;const tr=H.map((h,i)=>i===0?h-L[i]:Math.max(h-L[i],Math.abs(h-C[i-1]),Math.abs(L[i]-C[i-1])));let a=tr.slice(1,p+1).reduce((x,y)=>x+y)/p;for(let i=p+1;i<tr.length;i++)a=(a*(p-1)+tr[i])/p;return a;}
 
 async function krakenOHLC(pair,interval){
-const r=await fetch(‘https://api.kraken.com/0/public/OHLC?pair=’+pair+’&interval=’+interval);
+const ctrl=new AbortController();
+const t=setTimeout(()=>ctrl.abort(),8000);
+try{
+const r=await fetch(‘https://api.kraken.com/0/public/OHLC?pair=’+pair+’&interval=’+interval,{signal:ctrl.signal});
+clearTimeout(t);
 if(!r.ok)throw new Error(’Kraken HTTP ’+r.status);
 const j=await r.json();
 if(j.error&&j.error.length)throw new Error(j.error[0]);
@@ -96,9 +100,15 @@ if(!key)throw new Error(’No data for ’+pair);
 const c=j.result[key];
 if(!Array.isArray(c)||c.length<50)throw new Error(’Too few candles for ’+pair);
 return c.map(k=>({c:+k[4],h:+k[2],l:+k[3],v:+k[6]}));
+}catch(e){clearTimeout(t);throw e;}
 }
 async function fetchFunding(coin){
-try{const r=await fetch(‘https://www.okx.com/api/v5/public/funding-rate?instId=’+coin.okxSym);const j=await r.json();const val=+j.data?.[0]?.fundingRate*100;if(!isNaN(val))return val;}catch{}
+try{
+const ctrl=new AbortController();
+setTimeout(()=>ctrl.abort(),5000);
+const r=await fetch(‘https://www.okx.com/api/v5/public/funding-rate?instId=’+coin.okxSym,{signal:ctrl.signal});
+const j=await r.json();const val=+j.data?.[0]?.fundingRate*100;if(!isNaN(val))return val;
+}catch{}
 return null;
 }
 
@@ -197,13 +207,31 @@ function setBtn(){document.getElementById(‘ric’).className=busy?‘spinning�
 
 async function loadAll(){
 if(busy)return;busy=true;setBtn();
+// Phase 1 — load 15M + 1H + funding, render immediately
 await Promise.all(COINS.map(async coin=>{
 try{
-const[c15,c1h,c4h,fp]=await Promise.all([krakenOHLC(coin.pair,15),krakenOHLC(coin.pair,60),krakenOHLC(coin.pair,240),fetchFunding(coin)]);
-allData[coin.id]=analyze(c15,c1h,c4h,fp);tabSig[coin.id]=allData[coin.id].overall;delete allErr[coin.id];
+const[c15,c1h,fp]=await Promise.all([krakenOHLC(coin.pair,15),krakenOHLC(coin.pair,60),fetchFunding(coin)]);
+// Use flat 4H candles if we don’t have them yet
+const c4h=allData[coin.id]?allData[coin.id]._c4h:null;
+allData[coin.id]=analyze(c15,c1h,c4h||c1h,fp);
+allData[coin.id]._c4h=c4h;
+allData[coin.id]._c15=c15;allData[coin.id]._c1h=c1h;allData[coin.id]._fp=fp;
+tabSig[coin.id]=allData[coin.id].overall;delete allErr[coin.id];
 }catch(e){allErr[coin.id]=e.message;tabSig[coin.id]=null;}
 }));
 lastUp=new Date();cd=60;busy=false;renderTabs();renderPage();setBtn();
+// Phase 2 — quietly fetch 4H in background, update if it changes signal
+COINS.forEach(async coin=>{
+try{
+const c4h=await krakenOHLC(coin.pair,240);
+if(!allData[coin.id])return;
+allData[coin.id]._c4h=c4h;
+const updated=analyze(allData[coin.id]._c15,allData[coin.id]._c1h,c4h,allData[coin.id]._fp);
+updated._c4h=c4h;updated._c15=allData[coin.id]._c15;updated._c1h=allData[coin.id]._c1h;updated._fp=allData[coin.id]._fp;
+allData[coin.id]=updated;tabSig[coin.id]=updated.overall;
+renderTabs();if(active===coin.id)renderPage();
+}catch(e){console.log(’4H fetch failed for ‘+coin.id+’: ’+e.message);}
+});
 }
 
 function sw(id){active=id;renderTabs();renderPage();}
