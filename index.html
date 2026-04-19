@@ -174,7 +174,9 @@ function analyze(c5, c1h, fp) {
     { name:'1H Trend',      det: t1h ? 'Higher timeframe up' : 'Higher timeframe down', s: t1h ? 'g' : 'r', v: t1h ? 'Bullish' : 'Bearish' },
   ];
   const greens = inds.slice(0, 5).filter(x => x.s === 'g').length;
-  return { price: cl.at(-1), atr: atrV, inds, greens, total: 5, overall: greens >= 4 ? 'BUY' : greens >= 3 ? 'CAUTION' : 'AVOID' };
+  const reds   = inds.slice(0, 5).filter(x => x.s === 'r').length;
+  const overall = greens >= 4 ? 'BUY' : reds >= 4 ? 'SHORT' : greens >= 3 ? 'CAUTION' : reds >= 3 ? 'CAUTION' : 'AVOID';
+  return { price: cl.at(-1), atr: atrV, inds, greens, reds, overall };
 }
 
 // ── Format ───────────────────────────────────────────────
@@ -188,8 +190,8 @@ function fL(p, id) {
   if (p > 1000) return '$' + p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return '$' + p.toFixed(4);
 }
-const OC = { BUY: '#30D158', CAUTION: '#FF9F0A', AVOID: '#FF453A' };
-const OI = { BUY: '▲', CAUTION: '●', AVOID: '▼' };
+const OC = { BUY: '#30D158', SHORT: '#FF453A', CAUTION: '#FF9F0A', AVOID: 'rgba(255,255,255,0.45)' };
+const OI = { BUY: '▲', SHORT: '▼', CAUTION: '●', AVOID: '○' };
 const SC = { g: '#30D158', r: '#FF453A', y: '#FF9F0A' };
 const SB = { g: 'rgba(48,209,88,.15)', r: 'rgba(255,69,58,.15)', y: 'rgba(255,159,10,.15)' };
 const SD = { g: 'rgba(48,209,88,.55)', r: 'rgba(255,69,58,.55)', y: 'rgba(255,159,10,.55)' };
@@ -211,7 +213,10 @@ function renderPage() {
   if (!d && !e) { el.innerHTML = `<div class="sk"><div class="skc"></div><div class="skt">Loading ${active}…</div></div>`; return; }
   if (e && !d) { el.innerHTML = `<div class="errc"><div class="errh">${active} failed to load</div><div class="errb">${e}</div></div>`; return; }
   const oc = OC[d.overall];
-  const bars = Array.from({length:5}).map((_,i) => `<div class="sbar${i<d.greens?' on':''}"></div>`).join('');
+  const barColor = d.overall === 'SHORT' ? '#FF453A' : '#30D158';
+  const barCount = d.overall === 'SHORT' ? d.reds : d.greens;
+  const bars = Array.from({length:5}).map((_,i) => `<div class="sbar${i<barCount?' on':''}" style="${i<barCount?`background:${barColor}`:''}"></div>`).join('');
+  const subLabel = d.overall === 'SHORT' ? `${d.reds} of 5 signals red` : d.overall === 'BUY' ? `${d.greens} of 5 signals green` : `${d.greens} green · ${d.reds} red`;
   const rows = d.inds.map(ind => `
     <div class="row">
       <div class="lw" style="background:${SB[ind.s]};border-color:${SD[ind.s]}">
@@ -223,11 +228,12 @@ function renderPage() {
       </div>
       <div class="rval" style="color:${SC[ind.s]}">${ind.v}</div>
     </div>`).join('');
+  const isShort = d.overall === 'SHORT';
   const atrHtml = d.atr ? `
-    <div class="card"><div class="clbl">ATR LEVELS</div>
-      <div class="row"><div class="rtext"><div class="rname" style="font-weight:400;color:rgba(255,255,255,.45)">Stop loss</div></div><div class="rval" style="color:#FF453A">${fL(d.price - 1.5*d.atr, active)}</div></div>
-      <div class="row"><div class="rtext"><div class="rname" style="font-weight:400;color:rgba(255,255,255,.45)">Take profit 1 · 2×</div></div><div class="rval" style="color:#30D158">${fL(d.price + 2*d.atr, active)}</div></div>
-      <div class="row"><div class="rtext"><div class="rname" style="font-weight:400;color:rgba(255,255,255,.45)">Take profit 2 · 3×</div></div><div class="rval" style="color:#64D2FF">${fL(d.price + 3*d.atr, active)}</div></div>
+    <div class="card"><div class="clbl">ATR LEVELS · ${isShort ? 'SHORT' : 'LONG'}</div>
+      <div class="row"><div class="rtext"><div class="rname" style="font-weight:400;color:rgba(255,255,255,.45)">Stop loss</div></div><div class="rval" style="color:#FF453A">${fL(d.price + (isShort ? 1.5 : -1.5)*d.atr, active)}</div></div>
+      <div class="row"><div class="rtext"><div class="rname" style="font-weight:400;color:rgba(255,255,255,.45)">${isShort ? 'Target' : 'Take profit'} 1 · 2×</div></div><div class="rval" style="color:#30D158">${fL(d.price + (isShort ? -2 : 2)*d.atr, active)}</div></div>
+      <div class="row"><div class="rtext"><div class="rname" style="font-weight:400;color:rgba(255,255,255,.45)">${isShort ? 'Target' : 'Take profit'} 2 · 3×</div></div><div class="rval" style="color:#64D2FF">${fL(d.price + (isShort ? -3 : 3)*d.atr, active)}</div></div>
     </div>` : '';
   el.innerHTML = `
     <div class="hero" style="background:rgba(255,255,255,.05);border:.5px solid ${oc}35">
@@ -237,7 +243,7 @@ function renderPage() {
       </div>
       <div class="hlbl" style="color:${oc}">${d.overall}</div>
       <div class="sbars">${bars}</div>
-      <div class="hsub">${d.greens} of 5 signals green</div>
+      <div class="hsub">${subLabel}</div>
     </div>
     <div class="card"><div class="clbl">INDICATORS</div>${rows}</div>
     ${atrHtml}
